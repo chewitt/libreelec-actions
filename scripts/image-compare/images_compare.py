@@ -16,12 +16,29 @@ import io
 import os
 import re
 import subprocess
+import sys
 import tempfile
 from collections import defaultdict
 from prettytable import PrettyTable
 
 # Minimum file size change (in bytes) to include in summary reports
 MIN_SUMMARY_CHANGE_BYTES = 1024
+
+# ANSI escape codes for colored terminal output
+COLOR_RED = "\033[91m"
+COLOR_GREEN = "\033[92m"
+COLOR_YELLOW = "\033[93m"
+COLOR_CYAN = "\033[96m"
+COLOR_RESET = "\033[0m"
+
+
+def colorize(text: str, color_code: str, enabled: bool | None = None) -> str:
+    """Wrap text in ANSI escape code if coloring is enabled (defaults to isatty)."""
+    if enabled is None:
+        enabled = sys.stdout.isatty() or os.getenv("FORCE_COLOR") is not None
+    if enabled:
+        return f"{color_code}{text}{COLOR_RESET}"
+    return text
 
 
 def run_command(command: list[str], cwd: str | None = None) -> None:
@@ -204,6 +221,16 @@ def format_size_change(size: int | float) -> str:
     """
     sign = "+" if size >= 0 else "-"
     return f"{sign}{format_size(abs(size))}"
+
+
+def format_size_change_colored(size: int | float) -> str:
+    """Format a size change value with a +/- sign and color-code it."""
+    formatted = format_size_change(size)
+    if size > 0:
+        return colorize(formatted, COLOR_RED)
+    elif size < 0:
+        return colorize(formatted, COLOR_GREEN)
+    return formatted
 
 
 def normalize_path(path: str) -> str:
@@ -411,34 +438,34 @@ def compare_images(
 
         # Print normal added files
         if added_normal:
-            print("Added Files")
-            print("-----------")
+            print(colorize("Added Files", COLOR_CYAN))
+            print(colorize("-----------", COLOR_CYAN))
             added_table = PrettyTable(["File", "Size"])
             added_table.align["File"] = "l"
             added_table.align["Size"] = "r"
             added_table.padding_width = 1
             for path in added_normal:
-                added_table.add_row([path, format_size(map2[path][0])])
+                added_table.add_row([path, colorize(f"+{format_size(map2[path][0])}", COLOR_RED)])
             print(added_table)
             print()
 
         # Print normal removed files
         if removed_normal:
-            print("Removed Files")
-            print("-------------")
+            print(colorize("Removed Files", COLOR_CYAN))
+            print(colorize("-------------", COLOR_CYAN))
             removed_table = PrettyTable(["File", "Size"])
             removed_table.align["File"] = "l"
             removed_table.align["Size"] = "r"
             removed_table.padding_width = 1
             for path in removed_normal:
-                removed_table.add_row([path, format_size(map1[path][0])])
+                removed_table.add_row([path, colorize(f"-{format_size(map1[path][0])}", COLOR_GREEN)])
             print(removed_table)
             print()
 
         # Print normal renamed files
         if renamed_normal:
-            print("Renamed Files")
-            print("-------------")
+            print(colorize("Renamed Files", COLOR_CYAN))
+            print(colorize("-------------", COLOR_CYAN))
             renamed_table = PrettyTable(["Old File", "New File", "Size Change"])
             renamed_table.align["Old File"] = "l"
             renamed_table.align["New File"] = "l"
@@ -447,55 +474,55 @@ def compare_images(
             for old_path, new_path in renamed_normal:
                 size_diff = map2[new_path][0] - map1[old_path][0]
                 renamed_table.add_row(
-                    [old_path, new_path, format_size_change(size_diff)]
+                    [old_path, new_path, format_size_change_colored(size_diff)]
                 )
             print(renamed_table)
             print()
 
         # Print normal changed files
         if changed_normal:
-            print("Changed Files")
-            print("-------------")
+            print(colorize("Changed Files", COLOR_CYAN))
+            print(colorize("-------------", COLOR_CYAN))
             changed_table = PrettyTable(["File", "Size Change"])
             changed_table.align["File"] = "l"
             changed_table.align["Size Change"] = "r"
             changed_table.padding_width = 1
             for path in changed_normal:
                 size_diff = map2[path][0] - map1[path][0]
-                changed_table.add_row([path, format_size_change(size_diff)])
+                changed_table.add_row([path, format_size_change_colored(size_diff)])
             print(changed_table)
             print()
 
         # Print kernel added files
         if added_kernel:
-            print("Kernel Files Added")
-            print("------------------")
+            print(colorize("Kernel Files Added", COLOR_CYAN))
+            print(colorize("------------------", COLOR_CYAN))
             added_table = PrettyTable(["File", "Size"])
             added_table.align["File"] = "l"
             added_table.align["Size"] = "r"
             added_table.padding_width = 1
             for path in added_kernel:
-                added_table.add_row([path, format_size(map2[path][0])])
+                added_table.add_row([path, colorize(f"+{format_size(map2[path][0])}", COLOR_RED)])
             print(added_table)
             print()
 
         # Print kernel removed files
         if removed_kernel:
-            print("Kernel Files Removed")
-            print("--------------------")
+            print(colorize("Kernel Files Removed", COLOR_CYAN))
+            print(colorize("--------------------", COLOR_CYAN))
             removed_table = PrettyTable(["File", "Size"])
             removed_table.align["File"] = "l"
             removed_table.align["Size"] = "r"
             removed_table.padding_width = 1
             for path in removed_kernel:
-                removed_table.add_row([path, format_size(map1[path][0])])
+                removed_table.add_row([path, colorize(f"-{format_size(map1[path][0])}", COLOR_GREEN)])
             print(removed_table)
             print()
 
         # Print kernel renamed files
         if renamed_kernel:
-            print("Kernel Files Renamed")
-            print("--------------------")
+            print(colorize("Kernel Files Renamed", COLOR_CYAN))
+            print(colorize("--------------------", COLOR_CYAN))
             renamed_table = PrettyTable(["Old File", "New File", "Size Change"])
             renamed_table.align["Old File"] = "l"
             renamed_table.align["New File"] = "l"
@@ -504,22 +531,22 @@ def compare_images(
             for old_path, new_path in renamed_kernel:
                 size_diff = map2[new_path][0] - map1[old_path][0]
                 renamed_table.add_row(
-                    [old_path, new_path, format_size_change(size_diff)]
+                    [old_path, new_path, format_size_change_colored(size_diff)]
                 )
             print(renamed_table)
             print()
 
         # Print kernel changed files
         if changed_kernel:
-            print("Kernel Files Changed")
-            print("--------------------")
+            print(colorize("Kernel Files Changed", COLOR_CYAN))
+            print(colorize("--------------------", COLOR_CYAN))
             changed_table = PrettyTable(["File", "Size Change"])
             changed_table.align["File"] = "l"
             changed_table.align["Size Change"] = "r"
             changed_table.padding_width = 1
             for path in changed_kernel:
                 size_diff = map2[path][0] - map1[path][0]
-                changed_table.add_row([path, format_size_change(size_diff)])
+                changed_table.add_row([path, format_size_change_colored(size_diff)])
             print(changed_table)
 
         # Collect size changes for summary report
@@ -560,32 +587,41 @@ def compare_images(
             system_size1 is not None and system_size2 is not None
         ):
             print()
-            print("Image Files")
-            print("-----------")
+            print(colorize("Image Files", COLOR_CYAN))
+            print(colorize("-----------", COLOR_CYAN))
             if kernel_size1 is not None and kernel_size2 is not None:
                 kernel_diff = kernel_size2 - kernel_size1
                 size1_str = format_size(kernel_size1)
                 size2_str = format_size(kernel_size2)
                 diff_str = f"({format_size_change(kernel_diff)})"
+                diff_padded = f"{diff_str:>12}"
+                diff_color = COLOR_RED if kernel_diff > 0 else (COLOR_GREEN if kernel_diff < 0 else "")
+                diff_colored = colorize(diff_padded, diff_color) if diff_color else diff_padded
                 print(
-                    f"{'KERNEL:':<25} {size1_str:>9} -> {size2_str:>9}   {diff_str:>12}"
+                    f"{'KERNEL:':<25} {size1_str:>9} -> {size2_str:>9}   {diff_colored}"
                 )
             if system_size1 is not None and system_size2 is not None:
                 system_diff = system_size2 - system_size1
                 size1_str = format_size(system_size1)
                 size2_str = format_size(system_size2)
                 diff_str = f"({format_size_change(system_diff)})"
+                diff_padded = f"{diff_str:>12}"
+                diff_color = COLOR_RED if system_diff > 0 else (COLOR_GREEN if system_diff < 0 else "")
+                diff_colored = colorize(diff_padded, diff_color) if diff_color else diff_padded
                 print(
-                    f"{'SYSTEM:':<25} {size1_str:>9} -> {size2_str:>9}   {diff_str:>12}"
+                    f"{'SYSTEM:':<25} {size1_str:>9} -> {size2_str:>9}   {diff_colored}"
                 )
 
         # Print summary section
         print()
-        print("Summary")
-        print("-------")
+        print(colorize("Summary", COLOR_CYAN))
+        print(colorize("-------", COLOR_CYAN))
         overall_diff_str = format_size_change(overall_diff)
+        overall_diff_padded = f"{overall_diff_str:>12}"
+        overall_diff_color = COLOR_RED if overall_diff > 0 else (COLOR_GREEN if overall_diff < 0 else "")
+        overall_diff_colored = colorize(overall_diff_padded, overall_diff_color) if overall_diff_color else overall_diff_padded
         print(
-            f"{'Overall size difference:':<25} {'':>9}    {'':>9}   {overall_diff_str:>12}"
+            f"{'Overall size difference:':<25} {'':>9}    {'':>9}   {overall_diff_colored}"
         )
 
         # Print top files with size increases
@@ -594,7 +630,7 @@ def compare_images(
         increase_summary.align["Increase"] = "r"
         increase_summary.padding_width = 1
         for idx, (path, size_diff) in enumerate(increased_items, start=1):
-            increase_summary.add_row([idx, path, f"+{format_size(size_diff)}"])
+            increase_summary.add_row([idx, path, format_size_change_colored(size_diff)])
         if not increased_items:
             increase_summary.add_row(["-", "None", "-"])
 
@@ -604,7 +640,7 @@ def compare_images(
         decrease_summary.align["Decrease"] = "r"
         decrease_summary.padding_width = 1
         for idx, (path, size_diff) in enumerate(decreased_items, start=1):
-            decrease_summary.add_row([idx, path, f"-{format_size(size_diff)}"])
+            decrease_summary.add_row([idx, path, format_size_change_colored(-size_diff)])
         if not decreased_items:
             decrease_summary.add_row(["-", "None", "-"])
 
@@ -631,8 +667,44 @@ def get_monospaced_font(size: int = 14):
     return ImageFont.load_default()
 
 
+def parse_line_colors(line: str, default_color):
+    """Parse a line with ANSI escape sequences into a list of (text_segment, color) tuples."""
+    segments = []
+    # Regular expression to match ANSI escape codes
+    pattern = re.compile(r"\x1b\[([0-9;]*)m")
+    
+    current_color = default_color
+    last_idx = 0
+    
+    for match in pattern.finditer(line):
+        start, end = match.span()
+        # Add the text segment before the escape sequence
+        if start > last_idx:
+            segments.append((line[last_idx:start], current_color))
+        
+        # Determine the new color
+        code = match.group(1)
+        if code == "0":
+            current_color = default_color
+        elif code == "91":
+            current_color = (239, 83, 80)     # Soft Red
+        elif code == "92":
+            current_color = (102, 187, 106)   # Soft Green
+        elif code == "93":
+            current_color = (255, 238, 88)    # Soft Yellow
+        elif code == "96":
+            current_color = (38, 198, 218)    # Soft Cyan
+            
+        last_idx = end
+        
+    if last_idx < len(line):
+        segments.append((line[last_idx:], current_color))
+        
+    return segments
+
+
 def render_text_to_png(text: str, output_path: str) -> None:
-    """Render a text block (like console tables) to a clean dark-themed PNG file."""
+    """Render a text block (like console tables) to a clean dark-themed PNG file, preserving colors."""
     try:
         from PIL import Image, ImageDraw
     except ImportError:
@@ -643,7 +715,8 @@ def render_text_to_png(text: str, output_path: str) -> None:
     font = get_monospaced_font(14)
     lines = text.splitlines()
 
-    # Calculate line and image sizes
+    # Calculate line and image sizes on clean text
+    clean_lines = [re.sub(r"\x1b\[[0-9;]*[a-zA-Z]", "", line) for line in lines]
     dummy = Image.new("RGB", (1, 1))
     draw = ImageDraw.Draw(dummy)
 
@@ -661,7 +734,7 @@ def render_text_to_png(text: str, output_path: str) -> None:
         line_height = 20
 
     widths = []
-    for line in lines:
+    for line in clean_lines:
         try:
             if hasattr(font, "getbbox"):
                 bbox = font.getbbox(line)
@@ -689,20 +762,34 @@ def render_text_to_png(text: str, output_path: str) -> None:
 
     y = padding
     for line in lines:
-        try:
-            draw.text((padding, y), line, font=font, fill=text_color)
-        except Exception:
-            draw.text((padding, y), line, fill=text_color)
+        segments = parse_line_colors(line, text_color)
+        x = padding
+        for seg_text, color in segments:
+            try:
+                draw.text((x, y), seg_text, font=font, fill=color)
+                if hasattr(font, "getbbox"):
+                    bbox = font.getbbox(seg_text)
+                    seg_width = bbox[2] - bbox[0]
+                elif hasattr(draw, "textbbox"):
+                    bbox = draw.textbbox((0, 0), seg_text, font=font)
+                    seg_width = bbox[2] - bbox[0]
+                else:
+                    w, h = font.getsize(seg_text)
+                    seg_width = w
+            except Exception:
+                draw.text((x, y), seg_text, fill=color)
+                seg_width = len(seg_text) * 8.4
+            x += seg_width
         y += line_height
 
-    # Quantize to 16 colors (4-bit palette) to drastically reduce file size
+    # Quantize to 256 colors (8-bit palette) to reduce file size
     try:
-        quantized = image.quantize(colors=16)
+        quantized = image.quantize(colors=256)
         quantized.save(output_path, "PNG", optimize=True)
     except Exception:
         # Fallback to standard RGB save if quantization fails
         image.save(output_path, "PNG", optimize=True)
-    print(f"Report successfully saved as 4-bit PNG image to: {output_path}")
+    print(f"Report successfully saved as 8-bit PNG image to: {output_path}")
 
 
 if __name__ == "__main__":
@@ -742,15 +829,30 @@ if __name__ == "__main__":
 
     # Run the comparison
     if args.png:
+        # Force color output so that we can render the colors in the PNG
+        old_force_color = os.environ.get("FORCE_COLOR")
+        os.environ["FORCE_COLOR"] = "1"
         f = io.StringIO()
-        with contextlib.redirect_stdout(f):
-            compare_images(
-                args.image1,
-                args.image2,
-                min_summary_change_bytes=args.min_summary_change,
-            )
+        try:
+            with contextlib.redirect_stdout(f):
+                compare_images(
+                    args.image1,
+                    args.image2,
+                    min_summary_change_bytes=args.min_summary_change,
+                )
+        finally:
+            if old_force_color is not None:
+                os.environ["FORCE_COLOR"] = old_force_color
+            else:
+                os.environ.pop("FORCE_COLOR", None)
+
         output_text = f.getvalue()
-        print(output_text, end="")
+        # Clean color codes for terminal stdout if not TTY and color wasn't originally forced
+        clean_text_for_stdout = output_text
+        if not sys.stdout.isatty() and old_force_color is None:
+            clean_text_for_stdout = re.sub(r"\x1b\[[0-9;]*[a-zA-Z]", "", output_text)
+        print(clean_text_for_stdout, end="")
+
         render_text_to_png(output_text, args.png)
     else:
         compare_images(
