@@ -61,7 +61,7 @@ def is_squashfs(path: str) -> bool:
     return "Squashfs filesystem" in result.stdout
 
 
-def extract_squashfs_from_image(image_path: str, extract_dir: str) -> str:
+def extract_squashfs_from_image(image_path: str, extract_dir: str) -> tuple[str, int | None, int | None]:
     """Extract a SquashFS filesystem from a LibreELEC image file.
 
     Handles various image formats: .gz archives, raw .img files, and partitioned images.
@@ -71,7 +71,10 @@ def extract_squashfs_from_image(image_path: str, extract_dir: str) -> str:
         extract_dir: Directory where temporary extraction output should be stored.
 
     Returns:
-        The path to the extracted SquashFS directory.
+        A tuple containing:
+            - The path to the extracted SquashFS directory.
+            - The size of the KERNEL file (in bytes) if found, otherwise None.
+            - The size of the SYSTEM file (in bytes) if found, otherwise None.
 
     Raises:
         RuntimeError: If no SquashFS filesystem could be found in the image.
@@ -92,7 +95,15 @@ def extract_squashfs_from_image(image_path: str, extract_dir: str) -> str:
             squashfs_dir = os.path.join(extract_dir, "squashfs")
             os.makedirs(squashfs_dir, exist_ok=True)
             run_command(["unsquashfs", "-f", "-d", squashfs_dir, candidate])
-            return squashfs_dir
+            # Check for KERNEL in the same directory as candidate
+            kernel_size = None
+            candidate_dir = os.path.dirname(candidate)
+            for k_name in ["KERNEL", "kernel.img"]:
+                kernel_candidate = os.path.join(candidate_dir, k_name)
+                if os.path.exists(kernel_candidate):
+                    kernel_size = os.path.getsize(kernel_candidate)
+                    break
+            return squashfs_dir, kernel_size, os.path.getsize(candidate)
 
     # Step 3: For partitioned disk images, extract the partitions first.
     partition_files = []
@@ -122,7 +133,20 @@ def extract_squashfs_from_image(image_path: str, extract_dir: str) -> str:
             squashfs_dir = os.path.join(extract_dir, "squashfs")
             os.makedirs(squashfs_dir, exist_ok=True)
             run_command(["unsquashfs", "-f", "-d", squashfs_dir, candidate])
-            return squashfs_dir
+            # Check for KERNEL next to it or in the same partition files
+            kernel_size = None
+            candidate_dir = os.path.dirname(candidate)
+            for k_name in ["KERNEL", "kernel.img"]:
+                kernel_candidate = os.path.join(candidate_dir, k_name)
+                if os.path.exists(kernel_candidate):
+                    kernel_size = os.path.getsize(kernel_candidate)
+                    break
+            if kernel_size is None:
+                for p in partition_files:
+                    if os.path.basename(p) in ["KERNEL", "kernel.img"]:
+                        kernel_size = os.path.getsize(p)
+                        break
+            return squashfs_dir, kernel_size, os.path.getsize(candidate)
 
         system_dir = os.path.join(extract_dir, "system")
         os.makedirs(system_dir, exist_ok=True)
@@ -133,10 +157,23 @@ def extract_squashfs_from_image(image_path: str, extract_dir: str) -> str:
 
         system_file = os.path.join(system_dir, "SYSTEM")
         if os.path.exists(system_file):
+            kernel_size = None
+            kernel_dir = os.path.join(extract_dir, "kernel")
+            os.makedirs(kernel_dir, exist_ok=True)
+            for k_name in ["KERNEL", "kernel.img"]:
+                try:
+                    run_command(["7z", "e", "-y", f"-o{kernel_dir}", candidate, k_name])
+                    kernel_file = os.path.join(kernel_dir, k_name)
+                    if os.path.exists(kernel_file):
+                        kernel_size = os.path.getsize(kernel_file)
+                        break
+                except subprocess.CalledProcessError:
+                    pass
+
             squashfs_dir = os.path.join(extract_dir, "squashfs")
             os.makedirs(squashfs_dir, exist_ok=True)
             run_command(["unsquashfs", "-f", "-d", squashfs_dir, system_file])
-            return squashfs_dir
+            return squashfs_dir, kernel_size, os.path.getsize(system_file)
 
     raise RuntimeError(f"Unable to find a SquashFS filesystem inside {image_path}")
 
@@ -300,8 +337,12 @@ def compare_images(
     """
     with tempfile.TemporaryDirectory() as tmpdir:
         # Extract both images
-        dir1 = extract_squashfs_from_image(img1, os.path.join(tmpdir, "img1"))
-        dir2 = extract_squashfs_from_image(img2, os.path.join(tmpdir, "img2"))
+        dir1, kernel_size1, system_size1 = extract_squashfs_from_image(
+            img1, os.path.join(tmpdir, "img1")
+        )
+        dir2, kernel_size2, system_size2 = extract_squashfs_from_image(
+            img2, os.path.join(tmpdir, "img2")
+        )
 
         # Build file maps (path -> size and hash)
         map1 = build_file_map(dir1)
@@ -512,12 +553,40 @@ def compare_images(
         # Calculate total size difference
         overall_diff = sum(diff for _, diff in changed_diffs + renamed_diffs)
 
-        # Print summary section
+        # Print image files comparison section
         print()
         print(f"Compared images: {img1} vs {img2}")
+        if (kernel_size1 is not None and kernel_size2 is not None) or (
+            system_size1 is not None and system_size2 is not None
+        ):
+            print()
+            print("Image Files")
+            print("-----------")
+            if kernel_size1 is not None and kernel_size2 is not None:
+                kernel_diff = kernel_size2 - kernel_size1
+                size1_str = format_size(kernel_size1)
+                size2_str = format_size(kernel_size2)
+                diff_str = f"({format_size_change(kernel_diff)})"
+                print(
+                    f"{'KERNEL:':<25} {size1_str:>9} -> {size2_str:>9}   {diff_str:>12}"
+                )
+            if system_size1 is not None and system_size2 is not None:
+                system_diff = system_size2 - system_size1
+                size1_str = format_size(system_size1)
+                size2_str = format_size(system_size2)
+                diff_str = f"({format_size_change(system_diff)})"
+                print(
+                    f"{'SYSTEM:':<25} {size1_str:>9} -> {size2_str:>9}   {diff_str:>12}"
+                )
+
+        # Print summary section
+        print()
         print("Summary")
         print("-------")
-        print(f"Overall size difference: {format_size_change(overall_diff)}")
+        overall_diff_str = format_size_change(overall_diff)
+        print(
+            f"{'Overall size difference:':<25} {'':>9}    {'':>9}   {overall_diff_str:>12}"
+        )
 
         # Print top files with size increases
         increase_summary = PrettyTable(["Rank", "File", "Increase"])
